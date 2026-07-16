@@ -8,7 +8,7 @@ duplicate task even after the wait-timeout message itself was fixed.
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastmcp.exceptions import ToolError
@@ -64,6 +64,32 @@ async def test_other_cli_errors_pass_through_as_tool_error():
     with patch("sv_mcp.tasks._task_call", side_effect=ConfigError("something else broke")):
         with pytest.raises(ToolError, match="something else broke"):
             await get_task_status_handler(task_id="T4")
+
+
+def test_task_call_resolves_api_key_via_oauth_claims_not_just_env_var():
+    """Regression test: tasks.py's own key resolution was never updated for
+    http/OAuth mode - it only ever checked SV_API_KEY, so get_task_status/
+    get_task_result always failed with "missing API key" in http mode even
+    though task creation (execution.py's separate, correctly-fixed
+    resolution) worked fine. _resolve_api_key() must be consulted here too."""
+    from sv_mcp.tasks import _task_call
+
+    fake_definitions = MagicMock()
+    fake_definitions.resolve_tool.return_value = "geogptaudit"
+    fake_definitions.get_tool.return_value = {"endpoint": "https://api.example/geogptaudit"}
+
+    fake_api_client = MagicMock()
+    fake_api_client.request_tool.return_value.data = {"task_id": "T1", "status": "complete"}
+
+    with patch("sv_mcp.tasks.DefinitionsManager", return_value=fake_definitions), patch(
+        "sv_mcp.tasks.get_task_tool", return_value="geogptaudit"
+    ), patch("sv_mcp.tasks._resolve_api_key", return_value="000010oauth-resolved-key"), patch(
+        "sv_mcp.tasks.APIClient", return_value=fake_api_client
+    ):
+        _task_call("T1", "status", "geogptaudit")
+
+    _, kwargs = fake_api_client.request_tool.call_args
+    assert kwargs["api_key"] == "000010oauth-resolved-key"
 
 
 def test_build_task_tools_returns_both_tools_with_correct_names():

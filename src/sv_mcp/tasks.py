@@ -11,7 +11,6 @@ non-blocking follow-up path instead.
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import Any
 
 from fastmcp.exceptions import ToolError
@@ -21,6 +20,8 @@ from sv_cli.config import resolve_api_key
 from sv_cli.definitions import DefinitionsManager
 from sv_cli.errors import CLIError
 from sv_cli.tasks import DONE_STATES, ERROR_STATES, extract_status, get_task_tool, result_payload, status_payload
+
+from .execution import _resolve_api_key
 
 TASK_ID_SCHEMA = {
     "type": "object",
@@ -44,8 +45,13 @@ def _task_call(task_id: str, action: str, tool: str | None) -> Any:
     canonical = definitions.resolve_tool(get_task_tool(task_id, tool))
     entry = definitions.get_tool(canonical)
     endpoint = entry.get("endpoint")
+    # _resolve_api_key() checks the live OAuth token's claims first (http mode),
+    # falling back to SV_API_KEY (stdio mode) - same resolution execution.py's
+    # call_sv_tool() uses for task creation. Passed through as cli_api_key so
+    # resolve_api_key()'s own fallback chain (env var, sv auth set config,
+    # legacy SEOVENDOR_API_KEY) is unchanged when that returns None.
     api_key = resolve_api_key(
-        cli_api_key=os.environ.get("SV_API_KEY"),
+        cli_api_key=_resolve_api_key(),
         allow_prompt=False,
         non_interactive=True,
     )
