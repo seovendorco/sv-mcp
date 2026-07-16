@@ -128,6 +128,12 @@ def main() -> None:
             port=port,
             show_banner=False,
             allowed_hosts=allowed_hosts,
+            # FastMCP mounts the Streamable HTTP endpoint at /mcp by default. Moved
+            # to the bare root so the connector URL end users type is just
+            # SV_MCP_BASE_URL itself, with no suffix to remember or forget - the
+            # OAuth routes (/authorize, /token, /register, /.well-known/...) are
+            # separate, distinct paths and don't collide with this.
+            path="/",
         )
 
 

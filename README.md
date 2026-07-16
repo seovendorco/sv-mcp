@@ -36,7 +36,8 @@ python -m sv_mcp.server
 fail fast with a clear error if it's missing.
 
 When registering the MCP connector in the client (e.g. claude.ai's custom
-connector UI), use the base URL with `/mcp` appended, e.g.
-`https://mcp.seovendor.co/mcp` — that's where FastMCP mounts the actual MCP
-protocol endpoint, separate from the OAuth callback/discovery routes also
-served on this domain.
+connector UI), use the bare base URL, e.g. `https://mcp.seovendor.co` — no
+`/mcp` suffix needed. The server mounts the MCP protocol endpoint at the
+root (`path="/"` in `server.py`) specifically so this URL stays simple; the
+OAuth routes (`/authorize`, `/token`, `/register`, `/.well-known/...`) are
+separate paths and don't collide with this.
