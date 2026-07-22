@@ -73,10 +73,10 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "breakdown instead of a single score, use core-analysis."
     ),
     "ranklens": (
-        "Sample how a website ranks for a keyword across repeated AI-engine queries (the 'rank' "
-        "action) - returns one ranking data point per sample. Follow up with the 'competitors' "
-        "action (passing the mgptid from a prior rank result) to see which competitors showed up in "
-        "those same samples."
+        "Sample how a website ranks for an entity/keyword across repeated AI-engine queries (the "
+        "'rank' action) - returns one ranking data point per sample. Follow up with the "
+        "'competitors' action (passing the mgptid from a prior rank result) to see which "
+        "competitors showed up in those same samples."
     ),
     "seo-image": (
         "Generate an actual SEO-optimized image (e.g. a featured image or social graphic) through "

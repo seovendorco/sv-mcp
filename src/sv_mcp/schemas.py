@@ -26,6 +26,10 @@ TOOL_SPECIFIC_ALIAS_FIELDS: dict[str, set[str]] = {
     # "imagebackground" is a fallback alias for "background" (confirmed against
     # seoai/api/seo-image/index.php) - exposing both is redundant, not useful.
     "seo-image": {"imagebackground"},
+    # "kw"/"keyword" are deprecated input aliases of "entity" (confirmed against
+    # seoai/api/ranklens/index.php) kept server-side only for backward compatibility
+    # with existing raw API callers - a model should only ever see "entity".
+    "ranklens": {"kw", "keyword"},
 }
 
 API_TYPE_TO_JSON_TYPE = {

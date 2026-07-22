@@ -7,9 +7,14 @@ regress later.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from sv_cli.adapters import TOOL_ADAPTERS
 
 from sv_mcp.schemas import build_input_schema
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 def _schema(definitions, tool):
@@ -83,8 +88,13 @@ def test_single_action_tool_has_no_action_property(definitions):
 
 def test_plain_field_descriptions_surfaced_from_real_api(definitions):
     schema = _schema(definitions, "seogpt2")
-    assert "12 to 200 characters" in schema["properties"]["keyword"]["description"]
-    assert "up to 5 keywords" in schema["properties"]["kw"]["description"]
+    # Topic (the article subject) and KW (optional keywords to include) are two
+    # distinct real fields - "topic" must carry Topic's constraint, "keyword"
+    # must carry KW's, never the other way around (see adapters.py's seogpt2
+    # override and its regression test in sv_cli/tests/test_executor.py).
+    assert "12 to 200 characters" in schema["properties"]["topic"]["description"]
+    assert "up to 5 keywords" in schema["properties"]["keyword"]["description"]
+    assert schema["required"] == ["topic"]
 
 
 def test_action_override_restricts_exposed_actions(definitions):
@@ -95,6 +105,24 @@ def test_action_override_restricts_exposed_actions(definitions):
         "seogpt2", adapter, definitions["seogpt2"], actions=(adapter.default_action,)
     )
     assert "action" not in schema["properties"]
+
+
+def test_ranklens_entity_rename_excludes_deprecated_kw_keyword_aliases():
+    """Once seoai ships the entity rename, only "entity" should reach the model -
+
+    "kw"/"keyword" become deprecated server-side input aliases (kept for backward
+    compatibility with raw API callers), not something a model should also see as
+    a separate, redundant parameter. Uses a fixture shaped like ranklens's live
+    definition will look post-deployment (see seoai/api/ranklens/index.php and
+    api_definitions.php's entity/keyword schema changes).
+    """
+
+    fixture = json.loads((FIXTURES_DIR / "ranklens_post_deploy.json").read_text())
+    schema = build_input_schema("ranklens", TOOL_ADAPTERS["ranklens"], fixture)
+    assert "entity" in schema["properties"]
+    assert "kw" not in schema["properties"]
+    assert "keyword" not in schema["properties"]
+    assert schema["required"] == ["entity", "web"]
 
 
 def test_all_16_tools_build_without_error(definitions):
