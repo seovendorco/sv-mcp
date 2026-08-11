@@ -77,6 +77,7 @@ async def call_sv_tool(
             params=params,
             runtime=runtime,
             wait_options=wait_options,
+            client_type="mcp",
         )
     except SVTimeoutError as exc:
         # A wait timeout is NOT a failure - the task was created fine and is still running, only
