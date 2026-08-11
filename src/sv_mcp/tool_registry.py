@@ -97,10 +97,9 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "async and takes several minutes, use seogpt2 instead."
     ),
     "topical-authority": (
-        "Generate a topical content plan for a keyword: suggested article topics and subtopics to "
-        "build topical authority (the 'topics' action), or expand chosen topics into content pointers "
-        "(the 'content' action). Use this for content strategy/planning, not for generating finished "
-        "articles - for that, use seogpt2."
+        "Generate a topical content plan for a keyword: a list of suggested article topics, plus a "
+        "bonus list of related subtopic ideas, to help build topical authority. Use this for content "
+        "strategy/planning, not for generating finished articles - for that, use seogpt2."
     ),
     "top-competitors": (
         "Find the top-ranking competitor URLs for a keyword - a fast, lightweight competitor list. "

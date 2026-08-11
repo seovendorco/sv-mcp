@@ -76,13 +76,15 @@ def test_multi_action_tools_get_real_per_action_descriptions(definitions):
     assert "Generate RankLens report" in action["description"]
     assert "Find RankLens competitors" in action["description"]
 
-    schema = _schema(definitions, "topical-authority")
-    action = schema["properties"]["action"]
-    assert set(action["enum"]) == {"topics", "content"}
-
 
 def test_single_action_tool_has_no_action_property(definitions):
     schema = _schema(definitions, "preliminaryaudit")
+    assert "action" not in schema["properties"]
+
+    # topical-authority was a two-action tool (topics/content); content was removed
+    # because it duplicated topics's real behavior (see seoai's topical-authority
+    # fix) - now single-action, so no action property should be exposed either.
+    schema = _schema(definitions, "topical-authority")
     assert "action" not in schema["properties"]
 
 
