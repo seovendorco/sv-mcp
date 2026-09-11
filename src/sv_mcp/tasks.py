@@ -69,7 +69,7 @@ async def _run_task_call(task_id: str, action: str, tool: str | None) -> Any:
             raise ToolError(
                 f'No local record of which tool created task "{task_id}" (this can happen if the '
                 "task wasn't created in this session). Retry with the tool name, e.g. "
-                f'{{"task_id": "{task_id}", "tool": "seogpt2"}}.'
+                f'{{"task_id": "{task_id}", "tool": "prose"}}.'
             ) from exc
         raise ToolError(str(exc)) from exc
 

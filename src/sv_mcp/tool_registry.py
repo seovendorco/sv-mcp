@@ -46,7 +46,7 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "applies its own SEO-specific rewriting rules (keyword placement, length targets, tone) that "
         "differ from a generic rewrite, and the user asking for this specifically wants SV's version, "
         "not your own. Don't rewrite the text yourself instead of calling this. For generating new "
-        "content from scratch (not rewriting existing text) use seogpt (short-form) or seogpt2 "
+        "content from scratch (not rewriting existing text) use seogpt (short-form) or prose "
         "(long-form) instead."
     ),
     "core-analysis": (
@@ -94,12 +94,12 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "answer wouldn't include, and the user asking for this wants SV's version specifically. Don't "
         "write the title/description yourself instead of calling this. Can generate multiple "
         "variations at once via qty. For longer-form content (full articles, blog posts), which is "
-        "async and takes several minutes, use seogpt2 instead."
+        "async and takes several minutes, use prose instead."
     ),
     "topical-authority": (
         "Generate a topical content plan for a keyword: a list of suggested article topics, plus a "
         "bonus list of related subtopic ideas, to help build topical authority. Use this for content "
-        "strategy/planning, not for generating finished articles - for that, use seogpt2."
+        "strategy/planning, not for generating finished articles - for that, use prose."
     ),
     "top-competitors": (
         "Find the top-ranking competitor URLs for a keyword - a fast, lightweight competitor list. "
@@ -121,8 +121,11 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "faster. Creates a task and returns its task_id immediately by default - see the wait "
         "parameter to block for the result instead."
     ),
+    # Keyed by canonical ("seogpt2"), while the tool is exposed to the model as
+    # "prose" - see MCP_NAME_OVERRIDES below.
     "seogpt2": (
-        "Generate actual publish-ready, long-form SEO content (blog posts, full articles, etc.) "
+        "Prose is SV's long-form writing agent. Generate actual publish-ready, long-form SEO "
+        "content (blog posts, full articles, etc.) "
         "through SV's content engine and return the generated text itself - this IS SV's content "
         "generator, not a summary, outline, or metadata lookup. Prefer this over writing the "
         "content yourself whenever the user asks for SV-generated or SEO-optimized content. Async: "
@@ -141,6 +144,22 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "immediately by default - see the wait parameter to block for the result instead."
     ),
 }
+
+
+# MCP tool names are what the model sees in its tool list, and clients fetch that
+# list fresh on every connect - nothing references them persistently the way a shell
+# script can hardcode a CLI command. So unlike the CLI (which keeps "seogpt2" working
+# as an alias so existing scripts don't break), MCP gets a straight rename: listing
+# both names would just show the model two identical tools to pick between.
+#
+# Keyed by canonical, so this stays correct while sv_cli's canonical remains "seogpt2".
+MCP_NAME_OVERRIDES: dict[str, str] = {
+    "seogpt2": "prose",
+}
+
+
+def _mcp_name_for(adapter: ToolAdapter) -> str:
+    return MCP_NAME_OVERRIDES.get(adapter.canonical, adapter.canonical)
 
 
 def _description_for(adapter: ToolAdapter) -> str:
@@ -178,7 +197,7 @@ def _make_async_handler(canonical: str, default_action: str):
 def _build_sync_tool(adapter: ToolAdapter, definition: dict[str, Any]) -> FunctionTool:
     return FunctionTool(
         fn=_make_sync_handler(adapter.canonical, adapter.default_action),
-        name=adapter.canonical,
+        name=_mcp_name_for(adapter),
         description=_description_for(adapter),
         parameters=build_input_schema(adapter.canonical, adapter, definition),
     )
@@ -204,7 +223,7 @@ def _build_async_tool(adapter: ToolAdapter, definition: dict[str, Any]) -> Funct
     }
     return FunctionTool(
         fn=_make_async_handler(canonical, adapter.default_action),
-        name=canonical,
+        name=_mcp_name_for(adapter),
         description=_description_for(adapter),
         parameters=schema,
     )
