@@ -4,15 +4,35 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sv-mcp"
-version = "0.1.0"
-description = "MCP server exposing SV's content/SEO tools to AI agents, built on top of sv-cli."
+version = "0.2.0"
+description = "MCP server for the SV API: SEO and GEO tools for Claude and other MCP clients."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
+authors = [
+  {name = "SV MCP Contributors"}
+]
+keywords = ["mcp", "mcp-server", "model-context-protocol", "seo", "geo", "claude", "sv"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Internet :: WWW/HTTP",
+]
 dependencies = [
-  "sv-cli>=0.3.0",
+  "sv-cli>=0.8.0",  # 0.8.0 adds the HTTP 429 retry the SV API rate limit needs
   "fastmcp>=3.4",
 ]
+
+[project.urls]
+Homepage = "https://seovendor.co/api/mcp"
+Repository = "https://github.com/seovendorco/sv-mcp"
+Issues = "https://github.com/seovendorco/sv-mcp/issues"
+Changelog = "https://github.com/seovendorco/sv-mcp/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
