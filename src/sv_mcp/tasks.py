@@ -21,7 +21,8 @@ from sv_cli.definitions import DefinitionsManager
 from sv_cli.errors import CLIError
 from sv_cli.tasks import DONE_STATES, ERROR_STATES, extract_status, get_task_tool, result_payload, status_payload
 
-from .execution import _resolve_api_key
+from .annotations import task_tool_annotations
+from .execution import _resolve_api_key, readable_error
 
 TASK_ID_SCHEMA = {
     "type": "object",
@@ -71,21 +72,21 @@ async def _run_task_call(task_id: str, action: str, tool: str | None) -> Any:
                 "task wasn't created in this session). Retry with the tool name, e.g. "
                 f'{{"task_id": "{task_id}", "tool": "prose"}}.'
             ) from exc
-        raise ToolError(str(exc)) from exc
+        raise ToolError(readable_error(exc)) from exc
 
     # Reinforce this on every single poll, not just the first wait=True timeout: a bare
     # "not ready yet" with no reminder, repeated over many polls across a long-running task,
     # turned out in practice to still lead the model to create a duplicate task instead of
-    # keeping to this task_id (see plan.md's Phase 2 status - this recurred even after the
-    # wait-timeout message itself was fixed).
+    # keeping to this task_id - this recurred even after the wait-timeout message itself
+    # was fixed.
     status = extract_status(data)
     if status not in DONE_STATES and status not in ERROR_STATES and isinstance(data, dict):
         data = {
             **data,
             "_sv_mcp_reminder": (
-                f'Task "{task_id}" is still in progress (this is expected, not an error). Do not '
-                "create a new task for the same request - it will be charged separately and won't "
-                "finish any faster. Check again in a bit with the same task_id."
+                f'Task "{task_id}" is still in progress (this is expected, not an error). A new '
+                "task for the same request would be charged separately and would not finish any "
+                "sooner. This task can be checked again with the same task_id."
             ),
         }
     return data
@@ -100,17 +101,23 @@ async def get_task_result_handler(**kwargs: Any) -> Any:
 
 
 def build_task_tools() -> list[FunctionTool]:
+    status_title, status_annotations = task_tool_annotations("get_task_status")
+    result_title, result_annotations = task_tool_annotations("get_task_result")
     return [
         FunctionTool(
             fn=get_task_status_handler,
             name="get_task_status",
+            title=status_title,
             description="Check the status of an async SV task by task_id.",
             parameters=TASK_ID_SCHEMA,
+            annotations=status_annotations,
         ),
         FunctionTool(
             fn=get_task_result_handler,
             name="get_task_result",
+            title=result_title,
             description="Fetch the result of an async SV task by task_id, once it has finished.",
             parameters=TASK_ID_SCHEMA,
+            annotations=result_annotations,
         ),
     ]

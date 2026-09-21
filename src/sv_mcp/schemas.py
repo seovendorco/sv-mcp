@@ -107,9 +107,20 @@ def _display_names(tool: str, adapter: ToolAdapter, definition: Any, target_fiel
 # Some real fields have 100-300+ options (e.g. content-transformer's `type`: 333 options,
 # 8500+ chars of labels). Spelling every label out gets sent to the model on every tool
 # listing, not just when the tool is actually called - real, quantifiable context cost that
-# scales with tool count. The `enum` array (used for strict validation) always stays complete;
-# only the human-readable label text in `description` gets capped.
+# scales with tool count (Anthropic Software Directory Policy 5B: be frugal with tokens). The
+# set of valid values always stays complete; only the human-readable label text in
+# `description` gets capped.
 MAX_ENUM_DESCRIPTION_CHARS = 1500
+
+
+def _contiguous_int_range(values: list[Any]) -> tuple[int, int] | None:
+    """(lo, hi) if values are exactly the integers lo..hi, else None."""
+    if not values or not all(isinstance(v, int) and not isinstance(v, bool) for v in values):
+        return None
+    lo, hi = min(values), max(values)
+    if len(values) == hi - lo + 1 and len(set(values)) == len(values):
+        return lo, hi
+    return None
 
 
 def _enum_schema(candidates: list[Candidate], json_type: str) -> dict[str, Any]:
@@ -123,6 +134,13 @@ def _enum_schema(candidates: list[Candidate], json_type: str) -> dict[str, Any]:
         values.append(candidate.id)
         labels.append(f"{candidate.id}={candidate.label}")
 
+    # Integer option ids are always a contiguous 0..N range (they're array positions in the
+    # API's option lists). minimum/maximum validates exactly the same set as a full `enum`
+    # list, without sending hundreds of numbers the description already lists - saves ~1.4K
+    # tokens across the tool list. Anything that isn't a contiguous int range keeps `enum`.
+    int_range = _contiguous_int_range(values)
+    valid_values = f"any id from {int_range[0]} to {int_range[1]}" if int_range else "all values in `enum`"
+
     description = "; ".join(labels)
     if len(description) > MAX_ENUM_DESCRIPTION_CHARS:
         shown: list[str] = []
@@ -135,11 +153,13 @@ def _enum_schema(candidates: list[Candidate], json_type: str) -> dict[str, Any]:
         remaining = len(labels) - len(shown)
         description = (
             "; ".join(shown)
-            + f"; ... and {remaining} more options not shown. All values in `enum` are still "
-            "valid to send even though not labeled here - if the user's request doesn't clearly "
-            "match one of the examples above, ask them which specific option they want rather "
-            "than guessing an unlabeled id."
+            + f"; ... and {remaining} more options not shown. {valid_values[0].upper()}"
+            f"{valid_values[1:]} is valid even though not labeled here - if the user's request "
+            "doesn't clearly match one of the examples above, ask them which specific option "
+            "they want rather than guessing an unlabeled id."
         )
+    if int_range:
+        return {"type": json_type, "minimum": int_range[0], "maximum": int_range[1], "description": description}
     return {"type": json_type, "enum": values, "description": description}
 
 

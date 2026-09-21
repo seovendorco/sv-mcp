@@ -3,15 +3,14 @@
 Two modes, chosen by the SV_MCP_TRANSPORT environment variable:
 - stdio (default): local, single-user - spawned directly by an MCP host
   (Claude Desktop/Code), authenticated via one SV_API_KEY environment
-  variable. Unchanged behavior from Phases 1-3.
+  variable.
 - http: hosted, multi-user - authenticates each request via OAuth against
   SEOB's existing login system, then resolves that specific caller's own
   SV API key per-request (see execution.py) instead of one fixed key for
   the whole process.
 
 The http-mode auth wiring uses two off-the-shelf FastMCP classes rather than
-hand-rolled OAuth handling - see plan.md's Phase B section for why:
-OAuthProxy bridges MCP clients (which expect Dynamic Client Registration)
+hand-rolled OAuth handling: OAuthProxy bridges MCP clients (which expect Dynamic Client Registration)
 against SEOB's fixed-credential OAuth app, and IntrospectionTokenVerifier
 validates each opaque token by calling SEOB's checktoken.php (RFC 7662),
 with built-in caching.
@@ -33,7 +32,7 @@ from .tool_registry import build_tools
 # SEOB's OAuth endpoints - not secrets, but the base URL now varies between a
 # dev/staging SEOB deployment and production, so it's configurable via
 # SEOB_BASE_URL rather than hardcoded. Defaults to production. Whichever SEOB
-# this points at must have Phase A's changes deployed (authorization.php,
+# this points at must have the OAuth endpoints deployed (authorization.php,
 # token.php, checktoken.php) and the schema migration + sv-mcp client
 # registration run against *that* deployment's own database - these are not
 # automatically shared between a dev SEOB and production SEOB.

@@ -1,10 +1,10 @@
 """Builds MCP FunctionTool objects from sv_cli's live tool definitions.
 
-Phase 3: registers every family in sv_cli.adapters.TOOL_ADAPTERS, partitioned
-into the sync and async paths by each adapter's async_likely flag - not a
-hand-picked list anymore. A new tool added to sv_cli's adapters.py appears
-here automatically on next restart, picking up TOOL_DESCRIPTIONS' fallback
-text until someone writes it a real one.
+Registers every family in sv_cli.adapters.TOOL_ADAPTERS (minus
+MCP_EXCLUDED_TOOLS), partitioned into the sync and async paths by each adapter's
+async_likely flag - not a hand-picked list anymore. A new tool added to sv_cli's
+adapters.py appears here automatically on next restart, picking up
+TOOL_DESCRIPTIONS' fallback text until someone writes it a real one.
 """
 
 from __future__ import annotations
@@ -15,133 +15,104 @@ from fastmcp.tools import FunctionTool
 from sv_cli.adapters import TOOL_ADAPTERS, ToolAdapter
 from sv_cli.definitions import DefinitionsManager
 
+from .annotations import annotations_for
 from .execution import DEFAULT_WAIT_TIMEOUT_SECONDS, call_sv_tool
 from .schemas import build_input_schema
 
 # Hand-authored, not pulled from the API: sv_cli's tool definitions only carry
-# per-field descriptions, no tool-level summary. Written explicitly enough that
-# a model prefers calling the tool over improvising the task itself - a terse
-# "SV 'seogpt2' tool" description isn't enough signal that this returns real,
-# publish-ready generated text rather than being some kind of metadata lookup.
-# Grounded in each tool's real api_output schema (what it actually returns),
-# not guessed from the tool name alone.
+# per-field descriptions, no tool-level summary. Grounded in each tool's real
+# api_output schema (what it actually returns), not guessed from the tool name.
+#
+# Written to Anthropic's Software Directory Policy, section 2: each description
+# says what the tool does and when to use it, in plain factual terms. No
+# instructions that push the model to prefer the tool ("always call this",
+# "don't do it yourself"), and no marketing language. Cross-references between
+# SV tools are fine where they stop similar tools being confused (policy 2C).
+# tests/test_tool_registry.py enforces the banned phrases.
 TOOL_DESCRIPTIONS: dict[str, str] = {
     "better-keywords": (
-        "Research real SEO keyword opportunities for a seed keyword, using SV's own keyword "
-        "data (not a language-model guess). Returns keyword variants with search volume, CPC, "
-        "competition score, and buyer intent. Use this whenever the user wants keyword research "
-        "or keyword ideas."
+        "Keyword research for a seed keyword. The 'research' action returns related keyword "
+        "variants with monthly search volume, CPC, competition score and search intent. The "
+        "'filter' action filters a keyword list supplied in the request. Use when the user asks "
+        "for keyword research or keyword ideas."
     ),
     "content-quality": (
-        "Score a live URL's actual content against SV's HCU/EEAT quality rubric for a target "
-        "keyword. Returns up to 15 scored questions per URL (0-100 each, with a reasoning string), "
-        "and can compare two URLs at once via url_b. Use this for any content-quality/EEAT "
-        "evaluation of a real page - it reads and scores the page itself."
+        "Scores a live page's content quality (E-E-A-T and helpful-content criteria) for a target "
+        "keyword. Returns up to 15 scored criteria per URL (0-100 each, with reasoning). Pass url_b "
+        "to compare two pages. Use when the user asks to evaluate the content quality of a page."
     ),
     "content-transformer": (
-        "Rewrite or reformat existing content text (e.g. into a meta title, product description, "
-        "landing page copy) through SV's content engine. Takes the source text as input and returns "
-        "the rewritten version. IMPORTANT: always call this tool for a rewrite/reformat request, even "
-        "though it's the kind of short task you could plausibly just answer directly - SV's engine "
-        "applies its own SEO-specific rewriting rules (keyword placement, length targets, tone) that "
-        "differ from a generic rewrite, and the user asking for this specifically wants SV's version, "
-        "not your own. Don't rewrite the text yourself instead of calling this. For generating new "
-        "content from scratch (not rewriting existing text) use seogpt (short-form) or prose "
-        "(long-form) instead."
+        "Rewrites or reformats text supplied by the user into a chosen content type (for example a "
+        "meta title, product description or landing-page copy), applying SEO rules for keyword "
+        "placement, length and tone. Returns the rewritten text. Use when the user asks to rewrite, "
+        "repurpose or reformat existing text. To write new content from scratch, use seogpt "
+        "(short-form) or prose (long-form)."
     ),
     "core-analysis": (
-        "Run a detailed technical/on-page SEO analysis of a URL - returns HTTP status, page load "
-        "speed, and structured data for the title tag, meta description, H1s, H2s, and keyword usage. "
-        "Use this for a structural breakdown of a specific page's on-page SEO elements. For a single "
-        "overall score instead of a structural breakdown, use preliminaryaudit."
+        "Analyzes a URL's on-page SEO: HTTP status, load speed, title tag, meta description, H1 and "
+        "H2 headings, and keyword usage. Use for an element-by-element review of one page. For a "
+        "single overall health score, use preliminaryaudit."
     ),
     "insight-igniter": (
-        "Fast, synchronous: discover what entities/topics AI engines already associate with a website "
-        "- you give it a URL and nothing else, and it tells you what comes back. Returns one result "
-        "set per AI engine queried. Use this whenever the user asks an open-ended question like 'what "
-        "does AI associate with this site' or 'what entities show up for this brand' - you don't need "
-        "to know or supply any entities/keywords yourself first. This is different from geogptaudit: "
-        "that one is a slow (several-minute) async task that scores how well a site performs for "
-        "entities/keywords YOU already specify - only reach for geogptaudit if the user explicitly "
-        "asks for a GEO audit or visibility score against specific known entities, not for general "
-        "'what is AI associating with this site' questions, which this tool answers much faster."
+        "Shows which entities and topics AI engines associate with a website, given only its URL. "
+        "Returns one result set per AI engine queried. Synchronous and fast. Use for open-ended "
+        "questions such as 'what does AI associate with this site?'. To score visibility for "
+        "specific entities or keywords the user already has, use geogptaudit (slower, asynchronous)."
     ),
     "preliminaryaudit": (
-        "Run a quick, scored SEO audit of a URL - returns an overall score out of a maximum possible "
-        "score across a set of automated checks (canonical tags, blocking meta tags, load speed, "
-        "etc.). Use this for a fast pass/fail-style health score. For a structural element-by-element "
-        "breakdown instead of a single score, use core-analysis."
+        "Runs a quick automated SEO health check of a URL (canonical tags, blocking meta tags, load "
+        "speed and similar checks) and returns an overall score out of a maximum. Use for a fast "
+        "health check. For an element-by-element breakdown, use core-analysis."
     ),
     "ranklens": (
-        "Sample how a website ranks for an entity/keyword across repeated AI-engine queries (the "
-        "'rank' action) - returns one ranking data point per sample. Follow up with the "
-        "'competitors' action (passing the mgptid from a prior rank result) to see which "
-        "competitors showed up in those same samples."
-    ),
-    "seo-image": (
-        "Generate an actual SEO-optimized image (e.g. a featured image or social graphic) through "
-        "SV's image engine and return a URL to the generated file - this IS SV's image generator, not "
-        "a description of what an image could look like. Prefer this over describing/suggesting an "
-        "image yourself when the user wants a real generated image."
+        "Measures how a website ranks for an entity or keyword across repeated AI-engine queries. "
+        "The 'rank' action returns one ranking data point per sample. The 'competitors' action takes "
+        "the mgptid from a rank result and returns the competitors that appeared in those samples. "
+        "Pass brand when the site's brand name cannot be worked out from its domain."
     ),
     "seogpt": (
-        "Generate short-form SEO content (e.g. meta titles/descriptions, short product descriptions) "
-        "synchronously through SV's content engine, returning the generated text directly with no "
-        "waiting or polling - this IS SV's content generator for quick snippets. IMPORTANT: always "
-        "call this tool for a short SEO content request, even though writing one short title or "
-        "description feels like something you could just answer directly - SV's engine applies its "
-        "own SEO-specific tuning (character-limit compliance, keyword placement rules) that a generic "
-        "answer wouldn't include, and the user asking for this wants SV's version specifically. Don't "
-        "write the title/description yourself instead of calling this. Can generate multiple "
-        "variations at once via qty. For longer-form content (full articles, blog posts), which is "
-        "async and takes several minutes, use prose instead."
+        "Generates short-form SEO text such as meta titles, meta descriptions or short product "
+        "descriptions, and returns it directly (synchronous). Can return several variations at once "
+        "via qty. Use when the user asks for short SEO copy. For full articles or blog posts, use "
+        "prose."
     ),
     "topical-authority": (
-        "Generate a topical content plan for a keyword: a list of suggested article topics, plus a "
-        "bonus list of related subtopic ideas, to help build topical authority. Use this for content "
-        "strategy/planning, not for generating finished articles - for that, use prose."
+        "Builds a topical content plan for a keyword: a list of suggested article topics, plus "
+        "related subtopic ideas in seo mode. Use for content strategy and planning. To write the "
+        "articles themselves, use prose."
     ),
     "top-competitors": (
-        "Find the top-ranking competitor URLs for a keyword - a fast, lightweight competitor list. "
-        "For a fuller comparative analysis against a specific target URL (not just a list), use "
-        "seogptcompare instead."
+        "Lists the top-ranking competitor URLs for a keyword. Use for a quick competitor list. For a "
+        "full comparison of a specific URL against its competitors, use seogptcompare."
     ),
     "marketplace-services": (
-        "Search SV's marketplace for purchasable services (SEO/PPC/DEV, etc.) matching a search term, "
-        "with optional price/series/category filters. Use this to find SV services to buy, not for "
-        "SEO analysis or content generation."
+        "Searches SV's catalog of purchasable services (SEO, PPC, development and others) by search "
+        "term, with optional price, series and category filters. Returns matching services with "
+        "prices and links. Use only when the user asks to find SV services."
     ),
     "geogptaudit": (
-        "Slow (commonly several minutes) async audit: scores how well a domain or page performs in "
-        "AI-generated answers (ChatGPT, Gemini, AI Overviews, etc.) for a set of target entities/"
-        "keywords YOU already have in mind - this is not a traditional SEO crawl. Only use this when "
-        "the user explicitly asks for a GEO audit, AI-visibility score, or similar against specific "
-        "known entities. For an open-ended 'what does AI associate with this site' question where no "
-        "entities are specified upfront, use insight-igniter instead - it's synchronous and much "
-        "faster. Creates a task and returns its task_id immediately by default - see the wait "
-        "parameter to block for the result instead."
+        "Scores how visible a domain or page is in AI-generated answers (such as ChatGPT, Gemini and "
+        "Google AI Overviews) for entities or keywords the user specifies. Asynchronous and usually "
+        "takes several minutes: returns a task_id immediately unless wait is true. Use when the user "
+        "asks for a GEO audit or an AI-visibility score for specific entities. For open-ended "
+        "questions about what AI associates with a site, use insight-igniter."
     ),
     # Keyed by canonical ("seogpt2"), while the tool is exposed to the model as
     # "prose" - see MCP_NAME_OVERRIDES below.
     "seogpt2": (
-        "Prose is SV's long-form writing agent. Generate actual publish-ready, long-form SEO "
-        "content (blog posts, full articles, etc.) "
-        "through SV's content engine and return the generated text itself - this IS SV's content "
-        "generator, not a summary, outline, or metadata lookup. Prefer this over writing the "
-        "content yourself whenever the user asks for SV-generated or SEO-optimized content. Async: "
-        "creates a task and returns its task_id immediately by default (generation commonly takes "
-        "several minutes) - see the wait parameter to block for the result instead. For short-form "
-        "content (meta titles/descriptions), use seogpt instead - it's synchronous and much faster."
+        "Prose, SV's long-form writing agent: writes a full article or blog post on a topic and "
+        "returns the finished text. Asynchronous and usually takes several minutes: returns a "
+        "task_id immediately unless wait is true. Use when the user asks for a long-form article. "
+        "For short snippets such as meta titles, use seogpt."
     ),
     "seogptcompare": (
-        "Compare how a target URL is positioned for a keyword against its real competitors, using "
-        "SV's own competitive analysis (not a manual review). Async: creates a task and returns its "
-        "task_id immediately by default - see the wait parameter to block for the result instead."
+        "Compares a target URL against its top competitors for a keyword and returns a competitive "
+        "SEO analysis. Asynchronous: returns a task_id immediately unless wait is true."
     ),
     "seogptmapping": (
-        "Map a list of keywords to the best-matching existing pages on a target domain - useful for "
-        "internal linking or content-gap analysis. Async: creates a task and returns its task_id "
-        "immediately by default - see the wait parameter to block for the result instead."
+        "Maps a list of keywords to the most relevant existing pages on a target domain, for "
+        "internal linking or content-gap planning. Asynchronous: returns a task_id immediately "
+        "unless wait is true."
     ),
 }
 
@@ -156,6 +127,12 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
 MCP_NAME_OVERRIDES: dict[str, str] = {
     "seogpt2": "prose",
 }
+
+# Tools the SV API and CLI support but SV MCP deliberately does not expose.
+# seo-image: Anthropic's Software Directory Policy (section 4B) does not accept
+# software that uses AI to generate images as a standalone service. It stays
+# available through the API and CLI.
+MCP_EXCLUDED_TOOLS: frozenset[str] = frozenset({"seo-image"})
 
 
 def _mcp_name_for(adapter: ToolAdapter) -> str:
@@ -195,11 +172,14 @@ def _make_async_handler(canonical: str, default_action: str):
 
 
 def _build_sync_tool(adapter: ToolAdapter, definition: dict[str, Any]) -> FunctionTool:
+    title, annotations = annotations_for(adapter.canonical, _mcp_name_for(adapter))
     return FunctionTool(
         fn=_make_sync_handler(adapter.canonical, adapter.default_action),
         name=_mcp_name_for(adapter),
+        title=title,
         description=_description_for(adapter),
         parameters=build_input_schema(adapter.canonical, adapter, definition),
+        annotations=annotations,
     )
 
 
@@ -209,29 +189,28 @@ def _build_async_tool(adapter: ToolAdapter, definition: dict[str, Any]) -> Funct
     schema["properties"]["wait"] = {
         "type": "boolean",
         "description": (
-            "Defaults to false: this call returns the task_id right away, without waiting for the "
-            "task to finish. Follow up with get_task_status(task_id=...) or get_task_result(task_id=...) "
-            "to check progress or fetch the finished result once ready - call those again, spaced out, "
-            "if the task isn't done yet. Set wait=true instead to block in this same call for up to "
-            f"{DEFAULT_WAIT_TIMEOUT_SECONDS}s and get the result directly, if the task is expected to "
-            "be quick. Either way: never call this tool again for the same request just because a "
-            "previous attempt is still running or slow - that creates a second, duplicate, "
-            "separately-charged task. If a wait=true call runs out of time, it still returns "
-            "successfully (not an error) with the task_id and a status of 'still_running' - follow up "
-            "with get_task_status/get_task_result the same way."
+            "If false (default), returns a task_id immediately; follow up with get_task_status or "
+            f"get_task_result. If true, waits up to {DEFAULT_WAIT_TIMEOUT_SECONDS}s for the result; "
+            "if the task is still running then, returns status 'still_running' with the task_id "
+            "rather than an error. Every call to this tool starts a new, separately charged task."
         ),
     }
+    title, annotations = annotations_for(canonical, _mcp_name_for(adapter))
     return FunctionTool(
         fn=_make_async_handler(canonical, adapter.default_action),
         name=_mcp_name_for(adapter),
+        title=title,
         description=_description_for(adapter),
         parameters=schema,
+        annotations=annotations,
     )
 
 
 def build_tools(definitions: DefinitionsManager) -> list[FunctionTool]:
     tools: list[FunctionTool] = []
     for adapter in TOOL_ADAPTERS.values():
+        if adapter.canonical in MCP_EXCLUDED_TOOLS:
+            continue
         entry = definitions.get_tool(adapter.canonical)
         definition = entry.get("definition") or {}
         if adapter.async_likely:

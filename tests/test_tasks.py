@@ -24,7 +24,8 @@ async def test_pending_response_gets_reminder():
         result = await get_task_status_handler(task_id="T1", tool="seogpt2")
 
     assert "_sv_mcp_reminder" in result
-    assert "do not" in result["_sv_mcp_reminder"].lower() or "Do not" in result["_sv_mcp_reminder"]
+    # Still steers away from duplicate paid tasks, stated as a fact rather than an order.
+    assert "charged separately" in result["_sv_mcp_reminder"]
 
 
 @pytest.mark.asyncio

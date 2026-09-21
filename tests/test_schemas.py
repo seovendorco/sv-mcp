@@ -21,12 +21,20 @@ def _schema(definitions, tool):
     return build_input_schema(tool, TOOL_ADAPTERS[tool], definitions[tool])
 
 
+def _option_count(prop):
+    """Number of valid options, whether the schema lists them in `enum` or (for contiguous
+    integer ids) as a minimum/maximum range - both must cover every option."""
+    if "enum" in prop:
+        return len(prop["enum"])
+    return prop["maximum"] - prop["minimum"] + 1
+
+
 def test_better_keywords_properties_and_required(definitions):
     schema = _schema(definitions, "better-keywords")
     assert schema["required"] == ["keyword"]
     assert "researchtype" in schema["properties"]
     assert "kwcompetition" in schema["properties"]
-    assert len(schema["properties"]["language"]["enum"]) == 40
+    assert _option_count(schema["properties"]["language"]) == 40
 
 
 def test_array_enum_field_builds_array_of_enum_shape(definitions):
@@ -34,17 +42,17 @@ def test_array_enum_field_builds_array_of_enum_shape(definitions):
     researchtype = schema["properties"]["researchtype"]
     assert researchtype["type"] == "array"
     assert researchtype["items"]["type"] == "integer"
-    assert len(researchtype["items"]["enum"]) == 66
+    assert _option_count(researchtype["items"]) == 66
 
     kwcompetition = schema["properties"]["kwcompetition"]
     assert kwcompetition["type"] == "array"
-    assert len(kwcompetition["items"]["enum"]) == 32
+    assert _option_count(kwcompetition["items"]) == 32
 
 
-def test_oversized_enum_description_is_capped_but_enum_stays_complete(definitions):
+def test_oversized_enum_description_is_capped_but_valid_values_stay_complete(definitions):
     schema = _schema(definitions, "content-transformer")
     type_prop = schema["properties"]["type"]
-    assert len(type_prop["enum"]) == 333
+    assert _option_count(type_prop) == 333
     # Labels are capped at MAX_ENUM_DESCRIPTION_CHARS (1500); the trailing "N more options"
     # note is appended after that, so the total lands a bit above 1500, well under the
     # ~8500 chars an uncapped 333-option description would be.
@@ -66,7 +74,7 @@ def test_seo_image_excludes_imagebackground_alias(definitions):
     schema = _schema(definitions, "seo-image")
     assert "imagebackground" not in schema["properties"]
     assert "background" in schema["properties"]
-    assert len(schema["properties"]["background"]["enum"]) == 52
+    assert _option_count(schema["properties"]["background"]) == 52
 
 
 def test_multi_action_tools_get_real_per_action_descriptions(definitions):
@@ -133,3 +141,21 @@ def test_all_16_tools_build_without_error(definitions):
         assert schema["type"] == "object"
         assert schema["additionalProperties"] is False
         assert isinstance(schema["properties"], dict) and schema["properties"]
+
+
+def test_contiguous_integer_options_use_a_range_not_an_enum_list(definitions):
+    # Token frugality (policy 5B): 0..N integer ids are sent as minimum/maximum, which
+    # validates exactly the same set as listing every number.
+    type_prop = _schema(definitions, "content-transformer")["properties"]["type"]
+    assert "enum" not in type_prop
+    assert (type_prop["minimum"], type_prop["maximum"]) == (0, 332)
+    assert "Any id from 0 to 332 is valid" in type_prop["description"]
+
+
+def test_non_contiguous_or_string_options_keep_enum():
+    from sv_mcp.schemas import _contiguous_int_range
+
+    assert _contiguous_int_range([0, 1, 2]) == (0, 2)
+    assert _contiguous_int_range([0, 2, 3]) is None
+    assert _contiguous_int_range(["seo", "geo"]) is None
+    assert _contiguous_int_range([True, False]) is None

@@ -93,3 +93,52 @@ async def test_api_key_read_from_environment(monkeypatch):
     assert captured["runtime"].api_key == "test-key-123"
     assert captured["runtime"].quiet is True
     assert captured["runtime"].strict is True
+
+
+# --- readable_error: policy 5A - helpful errors instead of raw JSON --------------------------
+
+def _api_error(code, message, field="", details=None, status=400):
+    from sv_cli.errors import APIError
+
+    data = {
+        "success": False,
+        "data": None,
+        "error": {"code": code, "message": message, "field": field, "details": details or []},
+    }
+    return APIError(f"API request failed: HTTP {status}. {{raw json}}", status_code=status, data=data)
+
+
+def test_readable_error_uses_api_message_not_raw_json():
+    from sv_mcp.execution import readable_error
+
+    text = readable_error(_api_error("VALIDATION_ERROR", "Topic mode must be seo or geo.", field="topicmode"))
+    assert text.startswith("Topic mode must be seo or geo.")
+    assert "'topicmode'" in text
+    assert "VALIDATION_ERROR" in text
+    assert "{raw json}" not in text
+
+
+def test_readable_error_explains_insufficient_points():
+    from sv_mcp.execution import readable_error
+
+    err = _api_error(
+        "INSUFFICIENT_POINTS",
+        "Sorry, there are not enough points available to make this API call.",
+        field="points",
+        details={"required_points": 10, "available_points": 0},
+        status=402,
+    )
+    text = readable_error(err)
+    assert "Required: 10 points, available: 0." in text
+    assert "Add points" in text
+
+
+def test_readable_error_falls_back_to_message_without_structured_data():
+    from sv_cli.errors import APIError, NetworkError
+    from sv_mcp.execution import readable_error
+
+    # Older sv_cli (no exc.data) and non-API errors keep their own text unchanged.
+    assert readable_error(APIError("API request failed: HTTP 500. oops")) == "API request failed: HTTP 500. oops"
+    assert readable_error(NetworkError("Network error while calling SV API: boom")) == (
+        "Network error while calling SV API: boom"
+    )
